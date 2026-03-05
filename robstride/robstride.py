@@ -5,6 +5,26 @@ from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError
 class Robstride:
     def __init__(self):
         self.bus = None
+
+    # To test.
+    @staticmethod
+    def _scale_value_to_u16(value: float, v_min: float, v_max: float) -> int:
+        """
+        Helper function to scale a float into a 16-bit unsigned integer based on min/max bounds.
+        Equivalent to the float_to_uint function in the Robstride manual.
+        """
+        clamped = max(min(value, v_max), v_min)
+        return int(65535.0 * (clamped - v_min) / (v_max - v_min))
+    
+    # To test.
+    @staticmethod
+    def _scale_u16_to_value(x_int: int, v_min: float, v_max: float) -> float:
+        """
+        Helper function to reverse the 16-bit unsigned integer scaling back into a float.
+        Equivalent to the uint_to_float function in the Robstride manual.
+        """
+        span = v_max - v_min
+        return float(x_int) * span / 65535.0 + v_min
     
     # Function completed.
     def flush_CAN_bus(self):
@@ -107,33 +127,260 @@ class Robstride:
         self.verify_hardware_watchdog()
         print("[INFO] CAN bus initialized and watchdogs verified.")
         return
-    
-    def enable_MIT_all(self):
-        # Send the correct message to all actuators to enter MIT mode with a zero-torque passive state.
-        return
-    
-    def verify_MIT_all(self):
-        # Flush the CAN bus.
-        # Send a specific data read command to all actuators for MIT state.
-        # Wait for responses, with timeout, checking the message type of each message, and verifying MIT state for all actuators.
-        # Raise an appropriate exception if there is an error.
-        return
 
-    def send_target_state_vector(self):
-        # Send the correct command to set the target state vector of a given motor in MIT control mode.
-        return
+    def send_target_state_vector(self, motor_id: int, pos: float, vel: float, 
+                                 kp: float, kd: float, torque: float, limits: dict):
+        """
+        Sends the target state vector to a specific motor in MIT control mode.
+        
+        Args:
+            motor_id (int): CAN ID of the target motor.
+            pos (float): Target position (rad).
+            vel (float): Target velocity (rad/s).
+            kp (float): Position gain.
+            kd (float): Velocity gain (damping).
+            torque (float): Feed-forward torque (N.m).
+            limits (dict): Dictionary containing P_MIN, P_MAX, V_MIN, V_MAX, T_MIN, T_MAX.
+        """
+        # 1. Scale all float values to 16-bit unsigned integers
+        p_u16 = self._scale_value_to_u16(pos, limits['P_MIN'], limits['P_MAX'])
+        v_u16 = self._scale_value_to_u16(vel, limits['V_MIN'], limits['V_MAX'])
+        kp_u16 = self._scale_value_to_u16(kp, 0.0, 5000.0) # Fixed Kp bounds per manual
+        kd_u16 = self._scale_value_to_u16(kd, 0.0, 100.0)  # Fixed Kd bounds per manual
+        t_u16 = self._scale_value_to_u16(torque, limits['T_MIN'], limits['T_MAX'])
+
+        # 2. Pack data into 8 bytes (Big-Endian format '>HHHH' as required by manual)
+        data_payload = struct.pack('>HHHH', p_u16, v_u16, kp_u16, kd_u16)
+
+        # 3. Transmit using CommunicationType 1 (OPERATION_CONTROL). 
+        # The extra_data field acts as bits 8-23, which is the 16-bit torque value.
+        self.transmit(
+            comm_type=CommunicationType.OPERATION_CONTROL,
+            extra_data=t_u16,
+            destination_id=motor_id,
+            data=data_payload
+        )
     
-    def send_all_target_state_vectors(self):
-        # Call send_target_state_vector() for all actuators.
-        return
+    def send_all_target_state_vectors(self, target_states: dict, kp: float, kd: float, limits: dict):
+        """
+        Iterates over a dictionary of target states and dispatches them to the actuators.
+        
+        Args:
+            target_states (dict): Mapping of {motor_id: {'pos': float, 'vel': float, 'torque': float}}
+            kp (float): Global Kp gain for all joints.
+            kd (float): Global Kd gain for all joints.
+            limits (dict): Actuator limit bounds dictionary.
+        """
+        for motor_id, state in target_states.items():
+            self.send_target_state_vector(
+                motor_id=motor_id,
+                pos=state.get('pos', 0.0),
+                vel=state.get('vel', 0.0),
+                kp=kp,
+                kd=kd,
+                torque=state.get('torque', 0.0),
+                limits=limits
+            )
+
+    def enable_and_verify_all(self, limits: dict, timeout: float = 0.5):
+        """
+        Enables all actuators, forces them into a passive MIT state, and verifies 
+        their response to confirm they are active and responsive.
+        
+        Args:
+            limits (dict): Dictionary containing P_MIN, P_MAX, V_MIN, V_MAX, T_MIN, T_MAX.
+            timeout (float): Max time in seconds to wait for all motors to verify.
+            
+        Raises:
+            HardwareIOError: If any expected motor fails to verify its status within the timeout.
+        """
+        print("[INFO] Sending Enable commands to all motors...")
+        
+        # 1. Send the Enable command (CommType 3) to all actuators
+        for motor_id in self.motor_ids:
+            self.transmit(
+                comm_type=CommunicationType.ENABLE,
+                extra_data=self.host_id,
+                destination_id=motor_id,
+                data=b'\x00' * 8  # Payload is ignored for Enable commands
+            )
+            # Give the motor ICs a moment to transition states
+            time.sleep(0.01)
+            
+        print("[INFO] Establishing passive state and soliciting feedback...")
+        
+        # 2. Flush any stale messages from the bus
+        self.flush_CAN_bus()
+        
+        # 3. Pipeline a zero-command (kp=0, kd=0, torque=0) to ensure a limp state.
+        #    This automatically triggers an Operation Status (CommType 2) reply.
+        for motor_id in self.motor_ids:
+            self.send_target_state_vector(
+                motor_id=motor_id,
+                pos=0.0,
+                vel=0.0,
+                kp=0.0,
+                kd=0.0,
+                torque=0.0,
+                limits=limits
+            )
+            
+        print("[INFO] Waiting for state verification from all motors...")
+        
+        # 4. Verify all expected replies are received
+        verified_ids = set()
+        start_time = time.perf_counter()
+        
+        while len(verified_ids) < len(self.motor_ids):
+            # Check for overall timeout
+            if (time.perf_counter() - start_time) > timeout:
+                missing = set(self.motor_ids) - verified_ids
+                raise HardwareIOError(
+                    f"Timeout waiting for MIT state verification. Missing replies from motors: {missing}"
+                )
+                
+            reply = self.receive(timeout=0.01)
+            if reply is None:
+                continue
+                
+            # Unpack the response from the receive() method
+            c_type, motor_id, dest_id, extra_data, r_data = reply
+            
+            # 5. Check if the reply is a valid operation status destined for our host
+            if c_type == CommunicationType.OPERATION_STATUS and dest_id == self.host_id:
+                if motor_id in self.motor_ids:
+                    verified_ids.add(motor_id)
+                    print(f"  -> Motor {motor_id}: Verified active and in passive MIT control mode.")
+                    
+        print("[INFO] All motors successfully enabled, verified, and passive.")
     
     # Requires flush_CAN_bus() to be appropriately called before the original outbound messages were sent that we are listening for replies.
-    def wait_for_all_replies(self):
-        # Attempt to receive CAN messages of the expected reply type until either the correct number have been been accounted for, or raise an exception.
-        # Raise an exception if timeout passes a specific threshold.
-        # Return the received messages.
-        return
+    def wait_for_all_replies(self, limits: dict, timeout: float = 0.05) -> dict:
+        """
+        Blocks until valid Operation Status (Communication Type 2) replies are 
+        received from ALL expected motors.
+        
+        Args:
+            limits (dict): Dictionary containing P_MIN, P_MAX, V_MIN, V_MAX, T_MIN, T_MAX.
+            timeout (float): Max time in seconds to wait for the complete state vector.
+            
+        Returns:
+            dict: A mapping of {motor_id: {'pos': float, 'vel': float, 'torque': float, 'temp': float}}
+            
+        Raises:
+            HardwareIOError: If the timeout is exceeded before all motors reply.
+        """
+        received_states = {}
+        start_time = time.perf_counter()
+
+        # Loop until we have collected a state reply from every motor we expect
+        while len(received_states) < len(self.motor_ids):
+            
+            # 1. Check for overall timeout
+            if (time.perf_counter() - start_time) > timeout:
+                missing = set(self.motor_ids) - set(received_states.keys())
+                raise HardwareIOError(
+                    f"Timeout waiting for state replies. Missing replies from motors: {missing}"
+                )
+
+            # 2. Receive the next message from the CAN bus
+            reply = self.receive(timeout=0.005)
+            if reply is None:
+                continue
+
+            c_type, motor_id, dest_id, extra_data, r_data = reply
+
+            # 3. Filter for Operation Status (CommType 2) destined specifically for our host
+            if c_type == CommunicationType.OPERATION_STATUS and dest_id == self.host_id:
+                
+                # 4. If it's from a motor we are tracking, unpack the data
+                if motor_id in self.motor_ids and motor_id not in received_states:
+                    
+                    # The payload is packed as four 16-bit unsigned integers in Big-Endian format
+                    p_int, v_int, t_int, temp_int = struct.unpack('>HHHH', r_data)
+                    
+                    # Scale values back to physical units
+                    pos = self._scale_u16_to_value(p_int, limits['P_MIN'], limits['P_MAX'])
+                    vel = self._scale_u16_to_value(v_int, limits['V_MIN'], limits['V_MAX'])
+                    torque = self._scale_u16_to_value(t_int, limits['T_MIN'], limits['T_MAX'])
+                    
+                    # Temperature is reported as Celsius * 10
+                    temperature = temp_int / 10.0
+                    
+                    # Store in our local dictionary
+                    received_states[motor_id] = {
+                        'pos': pos,
+                        'vel': vel,
+                        'torque': torque,
+                        'temp': temperature
+                    }
+
+        return received_states
     
-    def shutdown(self):
-        # If the CAN bus has been enabled, send disable commands to all motors.
-        return
+    def shutdown(self, timeout: float = 0.5):
+        """
+        Safely disables all active motors, verifies they have shut down, 
+        and closes the CAN bus interface.
+        """
+        if self.bus is not None:
+            print("\n[INFO] Disabling all motors...")
+            
+            # 1. Flush bus to clear out old status messages
+            try:
+                self.flush_CAN_bus()
+            except Exception:
+                pass
+
+            # 2. Send the Disable command (CommType 4) to all actuators
+            for motor_id in getattr(self, 'motor_ids', []):
+                try:
+                    self.transmit(
+                        comm_type=CommunicationType.DISABLE,
+                        extra_data=self.host_id,
+                        destination_id=motor_id,
+                        data=b'\x00' * 8  # Payload must be cleared to 0
+                    )
+                    time.sleep(0.01)
+                except HardwareIOError as e:
+                    print(f"[WARN] Failed to send disable command to motor {motor_id}: {e}")
+
+            # 3. Verify the motors actually disabled
+            print("[INFO] Verifying motor shutdown...")
+            verified_offline = set()
+            start_time = time.perf_counter()
+            
+            while len(verified_offline) < len(getattr(self, 'motor_ids', [])):
+                if (time.perf_counter() - start_time) > timeout:
+                    missing = set(self.motor_ids) - verified_offline
+                    print(f"[CRITICAL WARNING] Timeout verifying shutdown! Motors {missing} MAY STILL BE LIVE AND DANGEROUS.")
+                    break
+                    
+                try:
+                    reply = self.receive(timeout=0.01)
+                    if reply is None:
+                        continue
+                        
+                    c_type, motor_id, dest_id, extra_data, r_data = reply
+                    
+                    # If we got a status reply from a motor, we treat it as confirmation 
+                    # that the hardware processed the CommType 4 command.
+                    if c_type == CommunicationType.OPERATION_STATUS and dest_id == self.host_id:
+                        if motor_id in self.motor_ids:
+                            verified_offline.add(motor_id)
+                            print(f"  -> Motor {motor_id}: Shutdown verified.")
+                            
+                except HardwareIOError:
+                    pass # Ignore read errors during teardown
+
+            print("[INFO] Shutting down CAN bus interface...")
+            
+            # 4. Close the socketcan interface
+            try:
+                self.bus.shutdown()
+            except Exception as e:
+                print(f"[WARN] Non-fatal error while shutting down CAN bus: {e}")
+            finally:
+                self.bus = None
+                print("[INFO] Teardown complete.")
+        else:
+            print("\n[INFO] CAN bus was not initialized. Nothing to shut down.")

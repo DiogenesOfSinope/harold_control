@@ -3,16 +3,13 @@ class Leg:
         return
     
     def init_Leg():
-        # Robstride.init_CAN_bus()
-        # Robstride.enable_MIT_all()
-        # Robstride.verify_MIT_all() -> I feel like enable and verify should perhaps have a function that calls both for elegance.
-        return
+        robstride.init_CAN_bus()
+        robstride.enable_and_verify_all()
     
     def get_latest_state_vector():
-        # Robstride.flush_CAN_bus()
-        # Robstride.send_all_target_state_vectors()
-        # Robstride.wait_for_all_replies()
-        return
+        robstride.flush_CAN_bus()
+        robstride.send_all_target_state_vectors()
+        robstride.wait_for_all_replies()
     
     def run_output_transform():
         # Scale actions.
