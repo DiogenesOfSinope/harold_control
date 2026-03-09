@@ -1,48 +1,43 @@
 import sys
 from robot.leg import Leg
+from control.policy import Policy
+from utils.safety import SafetyMonitor
 from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError, SafetyLimitError
 
-# ADD IN FUNCTIONALITY TO CHECK THAT WE ARE WITHIN THE ACTUATOR BOUNDS ON STARTUP!!!
-#   IF WE ARE SAY 2*PI RADIANS OFF (calibration wrong) we will destroy the robot!!
 
-def setup(leg):
+def setup(leg, policy, safety_monitor):
     leg.init_leg() # Starts the CAN bus, enables all motors, and checks the enable was succesful.
-    state_vector = leg.get_latest_state_vector()
-    # CHECK THAT OUR POSITION IS WITHIN THE BOUNDS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-    # Get latest state vector. -> is this baked into leg.init_leg()?
-        # This serves to ensure we have a pre-filled state vector that is accurate when we start running the policy.
-            # Otherwise it will set the positions to some crazy far away position on the first loop() iteration for
-            # a fraction of a second until the policy runs on the returned data.
-    # Run output transformer.
-    # Set state vector.
+    state_vector = leg.get_latest_state_vector() # Get the latest state vector directly from the actuators -> make sure to use a zero kd and kp here!
+    safety_monitor.verify_measured_state(state_vector) # Ensure the current state vector is not out of bounds.
+    physical_targets = policy.compute_action(state_vector)
+    safety_monitor.validate_commanded_targets(physical_targets)
+    leg.set_output_state_vector(physical_targets)
     # Delay
     return
 
-def loop(leg, policy):
-    # Refresh the state vector from the actuators.
+def loop(leg, policy, safety_monitor):
     state_vector = leg.get_latest_state_vector()
-    # Compute policy.W
-    # Perhaps we should define our policy class which inherits from the previous OnnxPolicy, so we can include
-    # a function for input vector formation/stacking?
-    # Run output transformer.
-    # Send output state vector.
+    safety_monitor.verify_measured_state(state_vector)
+    physical_targets = policy.compute_action(state_vector)
+    safety_monitor.validate_commanded_targets(physical_targets)
+    leg.set_output_state_vector(physical_targets)
     # Delay.
     return
 
 def shutdown(leg):
-    # Call leg.shutdown()?
+    leg.shutdown()
     # Anything else we should run here?
     return
 
 def main():
     leg = Leg()
-    policy = OnnxPolicy(MODEL_PATH)
+    policy = Policy()
+    safety_monitor = SafetyMonitor()
 
     try:
-        setup(leg, policy)
+        setup(leg, policy, safety_monitor)
         while True:
-            loop(leg, policy)
+            loop(leg, policy, safety_monitor)
     except SafetyLimitError as e:
         print(f"\n[EMERGENCY STOP] Safety Interlock Tripped: {e}")
     except (HardwareIOError, ActuatorFault, HardwareError) as e:

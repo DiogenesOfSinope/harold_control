@@ -17,13 +17,6 @@ class Leg:
         self.robstride.send_all_target_state_vectors(self, target_states=target_states, kp=kp, kd=kd, limits=limits)
         return self.robstride.wait_for_all_replies()
     
-    def run_output_transform(self):
-        # Scale actions.
-        # Add default offset.
-        # Apply direction/inversion.
-        # Implement soft joints/limit in software.
-        return
-    
     def set_output_state_vector(self):
         # send_all_target_state_vectors()
         return
