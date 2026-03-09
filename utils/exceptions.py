@@ -7,3 +7,7 @@ class HardwareIOError(HardwareError):
 class ActuatorFault(HardwareError):
     """Raised when a motor reports an internal hardware fault (e.g., overtemp)."""
     pass
+
+class SafetyLimitError(HardwareError):
+    """Raised by the supervisory layer when states violate safe operating bounds."""
+    pass
