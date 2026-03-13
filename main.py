@@ -27,7 +27,7 @@ def setup(leg, policy, safety_monitor):
     safety_monitor.validate_commanded_targets(physical_targets)
     target_dict = format_targets(physical_targets)
     leg.set_output_state_vector(physical_targets=target_dict,kp=KP_GAIN,kd=KD_GAIN)
-    elapsed = time.perf_counter - start_time
+    elapsed = time.perf_counter() - start_time
     if elapsed < DT:
         time.sleep(DT - elapsed)
     return target_dict

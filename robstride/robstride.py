@@ -6,7 +6,6 @@ class Robstride:
     def __init__(self):
         self.bus = None
 
-    # To test.
     @staticmethod
     def _scale_value_to_u16(value: float, v_min: float, v_max: float) -> int:
         """
@@ -16,7 +15,6 @@ class Robstride:
         clamped = max(min(value, v_max), v_min)
         return int(65535.0 * (clamped - v_min) / (v_max - v_min))
     
-    # To test.
     @staticmethod
     def _scale_u16_to_value(x_int: int, v_min: float, v_max: float) -> float:
         """
