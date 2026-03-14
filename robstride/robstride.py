@@ -2,7 +2,7 @@ import can
 import time
 import struct
 from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError
-from robstride.protocol import CommunicationType, ParameterType
+from robstride.protocol import CommunicationType, ParameterType, FORMAT_MAP
 
 class Robstride:
     def __init__(self, channel, host_id, motor_ids):

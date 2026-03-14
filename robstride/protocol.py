@@ -9,6 +9,15 @@ https://github.com/Seeed-Projects/RobStride_Control/tree/master
 
 import numpy as np
 
+# Map numpy types to struct format characters (Little Endian)
+FORMAT_MAP = {
+    np.uint8: '<B',
+    np.uint16: '<H',
+    np.int16: '<h',
+    np.uint32: '<I',
+    np.int32: '<i',
+    np.float32: '<f'
+}
 
 class CommunicationType:
     """
