@@ -106,6 +106,7 @@ class Robstride:
         for mid in self.motor_ids:
             # Pass the full parameter tuple instead of indexing [0] and hardcoding '<I'
             self.write_parameter(mid, ParameterType.CAN_TIMEOUT, timeout_units)
+            time.sleep(0.01)  # Give the motor MCU time to process the write command
             
     def verify_hardware_watchdog(self, expected_timeout_ms=100):
         print("[INFO] Verifying hardware watchdogs...")
