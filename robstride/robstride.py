@@ -63,16 +63,22 @@ class Robstride:
         except can.CanError as e:
             raise HardwareIOError(f"I/O failure while receiving from bus: {e}")
         
-    def write_parameter(self, target_id, param_index, value, value_format='<I'):
+    def write_parameter(self, target_id, parameter_tuple, value):
         """Pipelines a parameter write to the CAN bus without blocking."""
+        param_index, param_type = parameter_tuple
+        value_format = FORMAT_MAP[param_type]
+        
         index_bytes = struct.pack('<HH', param_index, 0x0000)
         data_bytes = struct.pack(value_format, value)
         self.transmit(CommunicationType.WRITE_PARAMETER, self.host_id, target_id, data=index_bytes + data_bytes)
 
-    def read_parameter(self, target_id, param_index, value_format='<I', timeout=0.1):
+    def read_parameter(self, target_id, parameter_tuple, timeout=0.1):
         """
         Reads a single parameter from a motor's memory.
         """
+        param_index, param_type = parameter_tuple
+        value_format = FORMAT_MAP[param_type]
+        
         # CommType 17 (Read), request payload sets data bytes to 0
         req_data = struct.pack('<HHL', param_index, 0x0000, 0x00000000)
         self.transmit(CommunicationType.READ_PARAMETER, self.host_id, target_id, data=req_data)
@@ -88,7 +94,7 @@ class Robstride:
             
             # Filter for a Read Parameter reply from the specific motor, sent to our host
             if c_type == CommunicationType.READ_PARAMETER and motor_id == target_id and dest_id == self.host_id:
-                # Unpack exactly bytes 4 through 7 using the provided format string
+                # Unpack exactly bytes 4 through 7 using the mapped format string
                 return struct.unpack(value_format, r_data[4:8])[0]
                 
         raise HardwareIOError(f"Timeout waiting for parameter {hex(param_index)} read from Motor {target_id}")
@@ -98,8 +104,8 @@ class Robstride:
         timeout_units = int(timeout_ms * 20)
         
         for mid in self.motor_ids:
-            # CAN_TIMEOUT parameter index, expecting an unsigned 32-bit int ('<I')
-            self.write_parameter(mid, ParameterType.CAN_TIMEOUT[0], timeout_units, '<I')
+            # Pass the full parameter tuple instead of indexing [0] and hardcoding '<I'
+            self.write_parameter(mid, ParameterType.CAN_TIMEOUT, timeout_units)
             
     def verify_hardware_watchdog(self, expected_timeout_ms=100):
         print("[INFO] Verifying hardware watchdogs...")
@@ -108,7 +114,8 @@ class Robstride:
         self.flush_CAN_bus() # Always flush before reading to drop stale frames
         
         for mid in self.motor_ids:
-            returned_val = self.read_parameter(mid, ParameterType.CAN_TIMEOUT[0], '<I')
+            # Pass the full parameter tuple
+            returned_val = self.read_parameter(mid, ParameterType.CAN_TIMEOUT)
             
             if returned_val != expected_units:
                 raise HardwareIOError(
