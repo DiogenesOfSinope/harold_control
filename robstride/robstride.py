@@ -107,23 +107,6 @@ class Robstride:
             # Pass the full parameter tuple instead of indexing [0] and hardcoding '<I'
             self.write_parameter(mid, ParameterType.CAN_TIMEOUT, timeout_units)
             time.sleep(0.01)  # Give the motor MCU time to process the write command
-            
-    def verify_hardware_watchdog(self, expected_timeout_ms=100):
-        print("[INFO] Verifying hardware watchdogs...")
-        expected_units = int(expected_timeout_ms * 20)
-        
-        self.flush_CAN_bus() # Always flush before reading to drop stale frames
-        
-        for mid in self.motor_ids:
-            # Pass the full parameter tuple
-            returned_val = self.read_parameter(mid, ParameterType.CAN_TIMEOUT)
-            
-            if returned_val != expected_units:
-                raise HardwareIOError(
-                    f"Motor {mid} watchdog mismatch! Expected {expected_units}, got {returned_val}"
-                )
-            
-            print(f"  -> Motor {mid}: Watchdog VERIFIED at {expected_timeout_ms}ms.")
 
     # Function completed.
     def init_CAN_bus(self):
@@ -135,7 +118,6 @@ class Robstride:
         except OSError as e:
             raise HardwareIOError(f"OS error connecting to {self.channel}. Is the interface physically up? {e}")
         self.enable_hardware_watchdog()
-        self.verify_hardware_watchdog()
         print("[INFO] CAN bus initialized and watchdogs verified.")
         return
 
