@@ -3,8 +3,11 @@ import struct
 from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError
 
 class Robstride:
-    def __init__(self):
+    def __init__(self, channel, host_id, motor_ids):
         self.bus = None
+        self.channel = channel
+        self.host_id = host_id
+        self.motor_ids = motor_ids
 
     @staticmethod
     def _scale_value_to_u16(value: float, v_min: float, v_max: float) -> int:

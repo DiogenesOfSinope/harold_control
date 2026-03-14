@@ -4,8 +4,8 @@ from robstride import Robstride
 class Leg:
     # Strictly a hardware abstraction layer for the robstride actuators.
     # Does not contain previous state information -> this is handled in policy.py!
-    def __init__(self, limits: dict):
-        self.robstride = Robstride()
+    def __init__(self, limits: dict, channel, host_id, motor_ids):
+        self.robstride = Robstride(channel, host_id, motor_ids)
         self.limits = limits
         return
     

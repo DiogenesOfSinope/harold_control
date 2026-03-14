@@ -21,10 +21,12 @@ class SafetyMonitor:
             } 
             for config in joint_limits.values()
         }
+
+        sorted_joints = sorted(joint_limits.items(), key=lambda item: item[1]['id'])
         
         # Ordered limits for array-based commanded state checks
-        self.ordered_pos_limits = [config['pos_limits'] for config in joint_limits.values()]
-        self.joint_names = list(joint_limits.keys())
+        self.ordered_pos_limits = [config['pos_limits'] for name, config in sorted_joints]
+        self.joint_names = [name for name, config in sorted_joints]
 
     def verify_measured_state(self, state_vector):
         """

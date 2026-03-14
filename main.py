@@ -4,7 +4,7 @@ from robot.leg import Leg
 from control.policy import Policy
 from utils.safety import SafetyMonitor
 from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError, SafetyLimitError
-from config import JOINT_CONFIG, RS03_LIMITS, KP_GAIN, KD_GAIN, MODEL_PATH, NUM_JOINTS, HISTORY_LEN, DT, DEFAULT_POS, ACTION_SCALE
+from config import JOINT_CONFIG, RS03_LIMITS, KP_GAIN, KD_GAIN, MODEL_PATH, NUM_JOINTS, HISTORY_LEN, DT, DEFAULT_POS, ACTION_SCALE, CAN_CHANNEL, HOST_ID
 
 def format_targets(target_array):
     """
@@ -50,9 +50,9 @@ def shutdown(leg):
     return
 
 def main():
-    leg = Leg(limits=RS03_LIMITS)
+    leg = Leg(limits=RS03_LIMITS, channel=CAN_CHANNEL, host_id=HOST_ID, motor_ids=[config['id'] for config in JOINT_CONFIG.values()]
     direction_vector = [config['direction'] for config in sorted(JOINT_CONFIG.values(), key=lambda x: x['id'])]
-    policy = Policy(model_path=MODEL_PATH, num_joints=NUM_JOINTS, history_len=HISTORY_LEN, period=DT, default_pos=DEFAULT_POS, direction_vector=[], action_scale=ACTION_SCALE)
+    policy = Policy(model_path=MODEL_PATH, num_joints=NUM_JOINTS, history_len=HISTORY_LEN, period=DT, default_pos=DEFAULT_POS, direction_vector=direction_vector, action_scale=ACTION_SCALE)
     safety_monitor = SafetyMonitor(joint_limits=JOINT_CONFIG)
 
     try:
