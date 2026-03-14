@@ -3,4 +3,4 @@
 - Implement spin-wait loop and thread priority to improve timing performance.
 - Implement a time over- or under-run exception.
 - Get an equivalent inverse-kinematics solution working.
-- Eliminate or replace the protocol.py file.
+- Ensure we are using protocol.py everywhere it can be used, now that it is verified as accurate.
