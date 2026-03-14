@@ -1,4 +1,4 @@
-from robstride import Robstride
+from robstride.robstride import Robstride
 
 
 class Leg:
@@ -15,7 +15,7 @@ class Leg:
     
     def get_latest_state_vector(self, target_states: dict, kp: float, kd: float):
         self.robstride.flush_CAN_bus()
-        self.robstride.send_all_target_state_vectors(self, target_states=target_states, kp=kp, kd=kd, limits=self.limits)
+        self.robstride.send_all_target_state_vectors(target_states=target_states, kp=kp, kd=kd, limits=self.limits)
         return self.robstride.wait_for_all_replies(limits=self.limits)
     
     def set_output_state_vector(self, physical_targets: dict, kp: float, kd: float):

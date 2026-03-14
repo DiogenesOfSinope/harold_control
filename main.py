@@ -50,7 +50,7 @@ def shutdown(leg):
     return
 
 def main():
-    leg = Leg(limits=RS03_LIMITS, channel=CAN_CHANNEL, host_id=HOST_ID, motor_ids=[config['id'] for config in JOINT_CONFIG.values()]
+    leg = Leg(limits=RS03_LIMITS, channel=CAN_CHANNEL, host_id=HOST_ID, motor_ids=[config['id'] for config in JOINT_CONFIG.values()])
     direction_vector = [config['direction'] for config in sorted(JOINT_CONFIG.values(), key=lambda x: x['id'])]
     policy = Policy(model_path=MODEL_PATH, num_joints=NUM_JOINTS, history_len=HISTORY_LEN, period=DT, default_pos=DEFAULT_POS, direction_vector=direction_vector, action_scale=ACTION_SCALE)
     safety_monitor = SafetyMonitor(joint_limits=JOINT_CONFIG)

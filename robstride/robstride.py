@@ -1,4 +1,5 @@
 import can
+import time
 import struct
 from utils.exceptions import HardwareIOError, ActuatorFault, HardwareError
 
