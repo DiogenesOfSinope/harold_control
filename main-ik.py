@@ -21,7 +21,6 @@ def main():
         # Initialize the hardware (starts CAN, enables motors into a passive state)
         leg.init_leg()
         print("[INFO] Initialization complete.")
-        time.sleep(0.5) # Brief pause to allow ICs to settle
 
         # Step 1: Obtain the current positions of all joints
         print("[INFO] Reading initial joint positions...")
