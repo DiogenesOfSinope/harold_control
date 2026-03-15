@@ -9,6 +9,10 @@ class Leg:
         self.limits = limits
         return
     
+    # Verified as  working.
+    # We are not getting any verification that the hardware watchdogs actually worked succesfully.
+    # Our previous function to verify that the hardware watchdogs was trying to read a parameter that did not actually get written back.
+    # We should try writing a new function to verify that this was succesful.
     def init_leg(self):
         self.robstride.init_CAN_bus()
         self.robstride.enable_and_verify_all(limits=self.limits)
