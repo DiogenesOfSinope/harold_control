@@ -54,7 +54,12 @@ def main():
         while True:
             start_time = time.perf_counter()
             
-            # Command the leg to hold the target positions without requesting a reply
+            # --- CRITICAL FIX ---
+            # Flush the unread feedback replies from the previous loop iteration.
+            # This prevents the OS SocketCAN buffer from overflowing and tripping the watchdogs.
+            leg.robstride.flush_CAN_bus() 
+            
+            # Command the leg to hold the target positions without polling for a return reply
             leg.set_output_state_vector(
                 physical_targets=target_dict, 
                 kp=KP_GAIN, 
@@ -65,6 +70,8 @@ def main():
             elapsed = time.perf_counter() - start_time
             if elapsed < DT:
                 time.sleep(DT - elapsed)
+            else:
+                print(f"[WARN] Loop overrun by {(elapsed - DT)*1000:.2f} ms")
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt detected. Stopping test...")
