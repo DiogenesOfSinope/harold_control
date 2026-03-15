@@ -1,66 +1,77 @@
 import sys
 import time
 from robot.leg import Leg
-from config import JOINT_CONFIG, RS03_LIMITS, CAN_CHANNEL, HOST_ID
+from config import JOINT_CONFIG, RS03_LIMITS, CAN_CHANNEL, HOST_ID, KP_GAIN, KD_GAIN, DT
 
 def main():
-    print("[INFO] Setting up Leg for IK state reading test...")
-    
-    # 1. Extract motor IDs from the joint configuration
+    print("[INFO] Setting up Leg for set_output_state_vector position-hold test...")
+
+    # Extract motor IDs from the joint configuration
     motor_ids = [config['id'] for config in JOINT_CONFIG.values()]
-    
-    # 2. Instantiate the Leg class
+
+    # Instantiate the Leg class
     leg = Leg(
-        limits=RS03_LIMITS, 
-        channel=CAN_CHANNEL, 
-        host_id=HOST_ID, 
+        limits=RS03_LIMITS,
+        channel=CAN_CHANNEL,
+        host_id=HOST_ID,
         motor_ids=motor_ids
     )
-
-    # 3. Define a zeroed target state vector (required by get_latest_state_vector)
-    zero_targets = {
-        mid: {'pos': 0.0, 'vel': 0.0, 'torque': 0.0} 
-        for mid in motor_ids
-    }
 
     try:
         # Initialize the hardware (starts CAN, enables motors into a passive state)
         leg.init_leg()
-        print("[INFO] Initialization complete. Entering read loop (Press Ctrl+C to stop)...")
-        time.sleep(1) # Brief pause before spamming terminal
+        print("[INFO] Initialization complete.")
+        time.sleep(0.5) # Brief pause to allow ICs to settle
+
+        # Step 1: Obtain the current positions of all joints
+        print("[INFO] Reading initial joint positions...")
+        zero_targets = {
+            mid: {'pos': 0.0, 'vel': 0.0, 'torque': 0.0} 
+            for mid in motor_ids
+        }
         
+        # Using kp=0.0 and kd=0.0 guarantees the leg remains limp while we poll the state
+        initial_state_vector = leg.get_latest_state_vector(
+            target_states=zero_targets, 
+            kp=0.0, 
+            kd=0.0
+        )
+
+        # Build the target dictionary to hold the starting positions
+        target_dict = {}
+        for motor_id, state in initial_state_vector.items():
+            current_pos = state.get('pos', 0.0)
+            print(f"  -> Motor ID {motor_id} initial position: {current_pos:>8.4f} rad")
+            target_dict[motor_id] = {
+                'pos': current_pos,
+                'vel': 0.0,      # We want it to stay completely still
+                'torque': 0.0    # No feed-forward torque
+            }
+
+        print("[INFO] Entering 50Hz position-hold loop (Press Ctrl+C to stop)...")
+        
+        # Step 2 & 3: Command the leg to stay at the initial position at 50Hz
         while True:
-            # Query the latest state. 
-            # kp=0.0 and kd=0.0 guarantees the leg remains limp.
-            state_vector = leg.get_latest_state_vector(
-                target_states=zero_targets, 
-                kp=0.0, 
-                kd=0.0
+            start_time = time.perf_counter()
+            
+            # Command the leg to hold the target positions without requesting a reply
+            leg.set_output_state_vector(
+                physical_targets=target_dict, 
+                kp=KP_GAIN, 
+                kd=KD_GAIN
             )
             
-            # Print the state vector legibly
-            # Using carriage return \r and end="" to overwrite the same line or clear terminal
-            print("\033[H\033[J", end="") # Clears the terminal screen for a clean read
-            print("--- Latest Leg State Vector ---")
-            
-            # Sort by motor ID so the printing is consistent
-            for motor_id in sorted(state_vector.keys()):
-                state = state_vector[motor_id]
-                print(f"Motor ID: {motor_id}")
-                print(f"  Pos:    {state.get('pos', 0.0):>8.4f} rad")
-                print(f"  Vel:    {state.get('vel', 0.0):>8.4f} rad/s")
-                print(f"  Torque: {state.get('torque', 0.0):>8.4f} N.m")
-                print(f"  Temp:   {state.get('temp', 0.0):>8.1f} °C\n")
-            
-            # Run at roughly 10 Hz for readability
-            time.sleep(0.1)
+            # Maintain 50Hz loop rate based on the DT from config.py
+            elapsed = time.perf_counter() - start_time
+            if elapsed < DT:
+                time.sleep(DT - elapsed)
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt detected. Stopping test...")
     except Exception as e:
         print(f"\n[FATAL] An unexpected error occurred: {e}")
     finally:
-        # 4. Gracefully shut down the leg and close the CAN bus
+        # Step 4: Gracefully shut down the leg and close the CAN bus
         leg.shutdown()
         sys.exit(0)
 
